@@ -1,74 +1,57 @@
-name: Publish in-development builds from main
-
-on:
-  schedule:
-    # Run daily on week days
-    - cron:  '0 11,23 * * 1-5'
-  workflow_dispatch:
-
 concurrency:
-  group: ${{ github.workflow }}
   cancel-in-progress: false
-
+  group: ${{ github.workflow }}
 jobs:
   java:
-    name: Publish from main
-    runs-on: ubuntu-22.04
-    timeout-minutes: 60
     env:
       SPARK_LOCAL_IP: localhost
     if: github.repository == 'projectnessie/nessie'
-
+    name: Publish from main
+    runs-on: self-hosted
     steps:
-      - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
-        with:
-          fetch-depth: '0'
-      - name: Setup runner
-        uses: ./.github/actions/setup-runner
-      - name: Setup Java, Gradle
-        uses: ./.github/actions/dev-tool-java
-
-      - name: Gradle / setup
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          cache-disabled: true
-          arguments: projects
-
-      - name: Gradle / publish snapshot
-        env:
-          ORG_GRADLE_PROJECT_signingKey: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
-          ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
-          ORG_GRADLE_PROJECT_sonatypeUsername: ${{ secrets.OSSRH_ACCESS_ID }}
-          ORG_GRADLE_PROJECT_sonatypePassword: ${{ secrets.OSSRH_TOKEN }}
-        run: |
-          # 2 Retries - due to Gradle's old and unfixed CME bug
-          ./gradlew compileAll jar testClasses || \
-            ./gradlew compileAll jar testClasses || \
-            ./gradlew compileAll jar testClasses 
-
-          # 2 Retries - to mitigate "HTTP/502 Bad Gateway" issues
-          ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository -Prelease -Puber-jar || \
-            ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository -Prelease -Puber-jar || \
-            ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository -Prelease -Puber-jar
-
-      - name: Docker images publishing
-        env:
-          ARTIFACTS: ../build-artifacts
-        run: |
-          rm -rf "${ARTIFACTS}"
-          mkdir -p "${ARTIFACTS}"
-
-          echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u $ --password-stdin 
-          tools/dockerbuild/build-push-images.sh \
-            -a "${ARTIFACTS}" \
-            -g ":nessie-quarkus" \
-            -p "servers/quarkus-server" \
-            ghcr.io/projectnessie/nessie-unstable
-          tools/dockerbuild/build-push-images.sh \
-            -a "${ARTIFACTS}" \
-            -g ":nessie-gc-tool" \
-            -p "gc/gc-tool" \
-            -d "Dockerfile-gctool" \
-            ghcr.io/projectnessie/nessie-gc-unstable
-
-          rm -rf "${ARTIFACTS}"
+    - continue-on-error: true
+      uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633
+      with:
+        fetch-depth: '0'
+    - continue-on-error: true
+      name: Setup runner
+      uses: ./.github/actions/setup-runner
+    - continue-on-error: true
+      name: Setup Java, Gradle
+      uses: ./.github/actions/dev-tool-java
+    - continue-on-error: true
+      name: Gradle / setup
+      uses: gradle/actions/setup-gradle@v3
+      with:
+        arguments: projects
+        cache-disabled: true
+    - continue-on-error: true
+      env:
+        ORG_GRADLE_PROJECT_signingKey: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+        ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        ORG_GRADLE_PROJECT_sonatypePassword: ${{ secrets.OSSRH_TOKEN }}
+        ORG_GRADLE_PROJECT_sonatypeUsername: ${{ secrets.OSSRH_ACCESS_ID }}
+      name: Gradle / publish snapshot
+      run: "# 2 Retries - due to Gradle's old and unfixed CME bug\n./gradlew compileAll\
+        \ jar testClasses || \\\n  ./gradlew compileAll jar testClasses || \\\n  ./gradlew\
+        \ compileAll jar testClasses \n\n# 2 Retries - to mitigate \"HTTP/502 Bad\
+        \ Gateway\" issues\n./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository\
+        \ -Prelease -Puber-jar || \\\n  ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository\
+        \ -Prelease -Puber-jar || \\\n  ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository\
+        \ -Prelease -Puber-jar\n"
+    - continue-on-error: true
+      env:
+        ARTIFACTS: ../build-artifacts
+      name: Docker images publishing
+      run: "rm -rf \"${ARTIFACTS}\"\nmkdir -p \"${ARTIFACTS}\"\n\necho '${{ secrets.GITHUB_TOKEN\
+        \ }}' | docker login ghcr.io -u $ --password-stdin \ntools/dockerbuild/build-push-images.sh\
+        \ \\\n  -a \"${ARTIFACTS}\" \\\n  -g \":nessie-quarkus\" \\\n  -p \"servers/quarkus-server\"\
+        \ \\\n  ghcr.io/projectnessie/nessie-unstable\ntools/dockerbuild/build-push-images.sh\
+        \ \\\n  -a \"${ARTIFACTS}\" \\\n  -g \":nessie-gc-tool\" \\\n  -p \"gc/gc-tool\"\
+        \ \\\n  -d \"Dockerfile-gctool\" \\\n  ghcr.io/projectnessie/nessie-gc-unstable\n\
+        \nrm -rf \"${ARTIFACTS}\"\n"
+    timeout-minutes: 60
+name: Publish in-development builds from main
+on:
+  repository_dispatch:
+    types: trigger-ga___snapshot-publish.yml

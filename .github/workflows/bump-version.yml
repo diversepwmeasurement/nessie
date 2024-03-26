@@ -1,120 +1,96 @@
-# Copyright (C) 2020 Dremio
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-
-# Projectnessie Update development version on 'main' (or another branch) to the next
-# patch/minor/major version as a -SNAPSHOT version.
-
-# Manually triggered workflow, takes the optional "bumpType" and "bumpBranch" arguments.
-# This workflow creates a Git commit to bump the development version.
-
-# Secrets:
-#   NESSIE_BUILDER  GH access-token to push the release-commits+tag to the branch,
-#                   bypassing the required commit-hooks + review.
-
-name: Bump version
-
-on:
-  # Manually triggered
-  workflow_dispatch:
-    inputs:
-      bumpType:
-        description: 'Bump what (`patch`, `minor`, `major`), defaults to `patch`'
-        required: true
-        type: string
-        default: "patch"
-      bumpBranch:
-        description: 'The branch name to bump the version in, leave empty to bump the version on the `main` branch.'
-        required: true
-        type: string
-        default: "main"
-
 jobs:
   create-release:
-    name: Bump version
-    runs-on: ubuntu-22.04
-    if: github.repository == 'projectnessie/nessie'
     env:
       BUMP_ON_BRANCH: ${{ github.event.inputs.bumpBranch }}
       BUMP_TYPE: ${{ github.event.inputs.bumpType }}
-
+    if: github.repository == 'projectnessie/nessie'
+    name: Bump version
+    runs-on: self-hosted
     steps:
-
-    ### BEGIN runner setup
-    - name: Checkout
-      uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
+    - continue-on-error: true
+      name: Checkout
+      uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633
       with:
         ref: ${{ env.BUMP_ON_BRANCH }}
-    - name: Setup Java, Gradle
+    - continue-on-error: true
+      name: Setup Java, Gradle
       uses: ./.github/actions/dev-tool-java
-    ### END runner setup
-
-    - name: Get previous version information
+    - continue-on-error: true
+      name: Get previous version information
       run: echo "PREVIOUS_VERSION=$(cat version.txt)" >> ${GITHUB_ENV}
-
-    - name: Bump to version
-      uses: gradle/actions/setup-gradle@v3
+    - continue-on-error: true
       env:
-        # Same as for ci.yml
         GRADLE_BUILD_ACTION_CACHE_KEY_ENVIRONMENT: java-17
         GRADLE_BUILD_ACTION_CACHE_KEY_JOB: nessie-ci
         GRADLE_BUILD_ACTION_CACHE_KEY_JOB_INSTANCE: ci
+      name: Bump to version
+      uses: gradle/actions/setup-gradle@v3
       with:
-        cache-read-only: true
         arguments: :bumpVersion --bumpType ${{ env.BUMP_TYPE }}
+        cache-read-only: true
+    - continue-on-error: true
+      name: Get bumped version information
+      run: 'echo "BUMPED_VERSION=$(cat version.txt)" >> ${GITHUB_ENV}
 
-    - name: Get bumped version information
-      run: |
-        echo "BUMPED_VERSION=$(cat version.txt)" >> ${GITHUB_ENV}
         echo "BUMPED_VERSION_NO_SNAPSHOT=${BUMPED_VERSION%-SNAPSHOT}" >> ${GITHUB_ENV}
 
-    - name: Bump versions for Python, site/, helm and UI
+        '
+    - continue-on-error: true
+      name: Bump versions for Python, site/, helm and UI
       uses: ./.github/actions/bump-versions
       with:
         new-version: ${{ env.BUMPED_VERSION_NO_SNAPSHOT }}
+    - continue-on-error: true
+      name: Configure bump-version-bot-user in git config
+      run: 'git config --global user.email "nessie-bump-version-workflow-noreply@projectnessie.org"
 
-    - name: Configure bump-version-bot-user in git config
-      run: |
-        git config --global user.email "nessie-bump-version-workflow-noreply@projectnessie.org"
         git config --global user.name "Nessie Bump Version Workflow [bot]"
 
-    # Record the next development iteration in git
-    - name: Record next development version in git
+        '
+    - continue-on-error: true
+      name: Record next development version in git
       run: git commit -a -m "[bump-version] bump to ${BUMPED_VERSION}"
+    - continue-on-error: true
+      name: Version information
+      run: 'cat <<! >> $GITHUB_STEP_SUMMARY
 
-    - name: Version information
-      run: |
-        cat <<! >> $GITHUB_STEP_SUMMARY
         ## Version information
 
+
         | **Previous Nessie version** | ${PREVIOUS_VERSION}       |
+
         | **Current Nessie version**  | ${BUMPED_VERSION}         |
+
         | **Bump type**               | ${BUMP_TYPE}              |
+
         | Git HEAD                    | \`$(git rev-parse HEAD)\` |
+
         !
 
-    # Push the Git commit. If this one fails, some other commit was pushed to the
-    # 'main' branch and break the linear history for the Nessie git repo.
-    - name: Push Git commit
-      run: |
-        # Push directly using the remote repo URL, which includes the secret so this job can push to the repo
+        '
+    - continue-on-error: true
+      name: Push Git commit
+      run: '# Push directly using the remote repo URL, which includes the secret so
+        this job can push to the repo
+
         UPSTREAM="https://${{ secrets.NESSIE_BUILDER }}@github.com/${GITHUB_REPOSITORY}.git"
 
-        # Move the default auth settings in ~/.gitconfig out of the way, so the git-push can use the token
+
+        # Move the default auth settings in ~/.gitconfig out of the way, so the git-push
+        can use the token
+
         git config --rename-section http.https://github.com/ http.https://save.github.com/
+
 
         git push --no-verify "${UPSTREAM}" HEAD:${GITHUB_REF}
 
+
         # Move the default auth settings in ~/.gitconfig back
+
         git config --rename-section http.https://save.github.com/ http.https://github.com/
+
+        '
+name: Bump version
+on:
+  repository_dispatch:
+    types: trigger-ga___bump-version.yml

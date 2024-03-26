@@ -1,35 +1,33 @@
-name: Synchronize Container Registries
-
-on:
-  workflow_run:
-    workflows:
-      - 'Publish release'
-      - 'Publish in-development builds from main'
-    types:
-      - completed
-  workflow_dispatch:
-
 jobs:
   sync:
-    name: Synchronize Container Registries
-    runs-on: ubuntu-22.04
-    timeout-minutes: 60
     if: github.repository == 'projectnessie/nessie'
-
+    name: Synchronize Container Registries
+    runs-on: self-hosted
     steps:
-      - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
+    - continue-on-error: true
+      uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633
+    - continue-on-error: true
+      env:
+        DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+        DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+        GHCR_IO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        QUAY_IO_TOKEN: ${{ secrets.QUAY_IO_TOKEN }}
+        QUAY_IO_USER: ${{ secrets.QUAY_IO_USER }}
+        REGCLIENT_VERSION: 0.4.7
+      name: Sync images
+      run: 'curl -L https://github.com/regclient/regclient/releases/download/v${REGCLIENT_VERSION}/regsync-linux-amd64
+        > regsync
 
-      - name: Sync images
-        env:
-          REGCLIENT_VERSION: 0.4.7
-          QUAY_IO_USER: ${{ secrets.QUAY_IO_USER }}
-          QUAY_IO_TOKEN: ${{ secrets.QUAY_IO_TOKEN }}
-          GHCR_IO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
-        run: |
-          curl -L https://github.com/regclient/regclient/releases/download/v${REGCLIENT_VERSION}/regsync-linux-amd64 > regsync
-          sha512sum -c .github/docker-sync/regsync.sha512
-          chmod 755 regsync
+        sha512sum -c .github/docker-sync/regsync.sha512
 
-          ./regsync -v info -c .github/docker-sync/regsync.yml once
+        chmod 755 regsync
+
+
+        ./regsync -v info -c .github/docker-sync/regsync.yml once
+
+        '
+    timeout-minutes: 60
+name: Synchronize Container Registries
+on:
+  repository_dispatch:
+    types: trigger-ga___container-sync.yml
